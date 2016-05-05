@@ -2,6 +2,7 @@ package com.example.bithavoc.myapplication.login
 
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
+import android.content.Intent
 import android.os.*
 import android.support.v7.app.AppCompatActivity
 import android.view.View
@@ -12,6 +13,7 @@ import com.example.bithavoc.myapplication.MyBackendService
 import com.example.bithavoc.myapplication.R
 import com.example.bithavoc.myapplication.foundation.*
 import com.example.bithavoc.myapplication.foundation.indicators.ProgressDialogLoaderIndicator
+import com.example.bithavoc.myapplication.home.HomeActivity
 import kotlinx.android.synthetic.main.activity_login.*;
 
 class LoginActivity : AppCompatActivity() {
@@ -41,6 +43,9 @@ class LoginActivity : AppCompatActivity() {
             it.reacter.reacting { newLoginState, oldLoginState ->
                 email_field.error = newLoginState.login.emailError
                 password_field.error = newLoginState.login.passwordError
+                if(newLoginState.logon.loggedIn) {
+                    this.startActivity(Intent(this, HomeActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                }
             }
         }
 

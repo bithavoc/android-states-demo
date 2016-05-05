@@ -6,7 +6,6 @@ import android.os.*
 import android.support.v4.content.LocalBroadcastManager
 import android.util.Log
 import com.example.bithavoc.myapplication.foundation.internal.*
-import kotlin.reflect.memberProperties
 
 class ActionRouterFragment<T, TServiceClass>(val serviceClass: Class<TServiceClass>, stateInit: () -> T) : Fragment()  where T:Any, TServiceClass:BackendService {
     var reacter = StateReacter<T>(stateInit=stateInit)
