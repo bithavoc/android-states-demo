@@ -24,4 +24,12 @@ class LogonHandler : ActionHandler() {
             val login = result.copy(emailError = null, passwordError = null)
         }
     }
+
+    @ServiceAction
+    public fun logout(@GlobalState state:LogonStateData = LogonStateData(loggedIn = false)) : Any? {
+        return object {
+            @GlobalState
+            val logonState = state.copy(loggedIn = false, attempts = 0)
+        }
+    }
 }

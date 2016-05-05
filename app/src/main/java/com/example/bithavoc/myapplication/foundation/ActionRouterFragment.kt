@@ -1,5 +1,6 @@
 package com.example.bithavoc.myapplication.foundation
 
+import android.app.Activity
 import android.app.Fragment
 import android.content.*
 import android.os.*
@@ -7,27 +8,78 @@ import android.support.v4.content.LocalBroadcastManager
 import android.util.Log
 import com.example.bithavoc.myapplication.foundation.internal.*
 
-class ActionRouterFragment<T, TServiceClass>(val serviceClass: Class<TServiceClass>, stateInit: () -> T) : Fragment()  where T:Any, TServiceClass:BackendService {
-    var reacter = StateReacter<T>(stateInit=stateInit)
+class ActionRouterFragment : Fragment(), MessageBus, InitializationChain {
     private var serviceClient : Messenger? = null
-    private lateinit var localBroadcastManager:LocalBroadcastManager
-    private var pendingInitializations = mutableListOf<InitializationStep>()
+    private var localBroadcastManager:LocalBroadcastManager? = null
+    private var pendingInitializations = mutableListOf<InitializationStep>(ServiceInitializationStep())
+
+    private var reacter:StateReacter<*>? = null
+        set(value) {
+            field = value
+            value?.messageBus = this
+            value?.initializationChain = this
+            wireDependencices()
+        }
+    private var existentState:Any? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        pendingInitializations.add(ServiceInitializationStep())
-        localBroadcastManager = LocalBroadcastManager.getInstance(context)
-        localBroadcastManager.registerReceiver(broadcastReceiver, IntentFilter(Broadcaster.PUBLISH_ACTION_NAME))
-        this.activity.bindService(Intent(this.activity, serviceClass), connection, Context.BIND_AUTO_CREATE)
-        prepareCallback?.invoke(this)
-
-        if(reacter.globalStateProperties.count() > 0) {
-            reacter.globalStateProperties.keys.forEach { globalProp ->
-                pendingInitializations.add(GlobalStateIdentifierStepInitialization(id = globalProp))
-            }
+        if(savedInstanceState != null) {
+            val stateJSON = savedInstanceState.getString(ActionRouterFragment.STATE_BUNDLE_KEY)
+            val stateClassName = savedInstanceState.getString(ActionRouterFragment.STATE_CLASS_NAME_BUNDLE_KEY)
+            val stateClass = Class.forName(stateClassName)
+            existentState = CommandMapping.json.deserialize(stateJSON, stateClass)
         }
+        if(existentState == null && reacter == null) {
+            throw Exception("${this.javaClass.name} requires preparation")
+        }
+        wireDependencices()
+    }
+
+    override fun onAttach(context: Context?) {
+        super.onAttach(context)
+    }
+
+    private var wired=false
+    private var created=false
+
+    private fun wireDependencices() {
+        if(wired) {
+            return
+        }
+        if(serviceClass == null) {
+            return
+        }
+        if(!isAdded) {
+            return
+        }
+        val reacter = this.reacter ?: return
+        wired = true
+        if(this.existentState != null) {
+            reacter.restoreState(this.existentState)
+            this.existentState = null
+        }
+
+        localBroadcastManager = LocalBroadcastManager.getInstance(context)
+        localBroadcastManager?.registerReceiver(broadcastReceiver, IntentFilter(Broadcaster.PUBLISH_ACTION_NAME))
+        this.context.bindService(Intent(this.context, serviceClass), connection, Context.BIND_AUTO_CREATE)
+
         playStateTransitionPhase(starting = true)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle?) {
+        if(outState != null) {
+            exportCurrentStateToBundle(outState)
+        }
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun exportCurrentStateToBundle(outState:Bundle) {
+        val currentState = reacter?.state ?: return
+        val stateJSON = CommandMapping.json.serialize(currentState)
+        outState.putString(ActionRouterFragment.STATE_BUNDLE_KEY, stateJSON)
+        val stateClassName = currentState.javaClass.name
+        outState.putString(ActionRouterFragment.STATE_CLASS_NAME_BUNDLE_KEY, stateClassName)
     }
 
     override fun onDestroy() {
@@ -35,7 +87,7 @@ class ActionRouterFragment<T, TServiceClass>(val serviceClass: Class<TServiceCla
         if(connection.bound) {
             this.activity.unbindService(connection)
         }
-        localBroadcastManager.unregisterReceiver(broadcastReceiver)
+        localBroadcastManager?.unregisterReceiver(broadcastReceiver)
     }
 
     private var stateInitializerTransitions = mutableListOf<StateTransitionIndicator>()
@@ -53,13 +105,13 @@ class ActionRouterFragment<T, TServiceClass>(val serviceClass: Class<TServiceCla
             }
         }
     }
-    private var prepareCallback: ((ActionRouterFragment<T, TServiceClass>) -> Unit)? = null
-
-    fun prepare(callback: (ActionRouterFragment<T, TServiceClass>) -> Unit) {
-        this.prepareCallback = callback
+    private var serviceClass:Class<*>? = null
+    fun <TServiceClass:BackendService>prepare(serviceClass: Class<TServiceClass>, reacter:StateReacter<*>)  {
+        this.serviceClass = serviceClass
+        this.reacter = reacter
     }
 
-    private fun sendMessage(msg:Message) {
+    override fun sendMessage(msg:Message) {
         msg.replyTo = incomingMessenger
         serviceClient?.send(msg)
     }
@@ -87,7 +139,7 @@ class ActionRouterFragment<T, TServiceClass>(val serviceClass: Class<TServiceCla
                 return
             }
             Log.d("ActionRouterFragment", "Incoming Reply Message")
-            processReply(msg)
+            replyReceivedCallback?.invoke(msg)
             super.handleMessage(msg)
         }
     })
@@ -98,25 +150,19 @@ class ActionRouterFragment<T, TServiceClass>(val serviceClass: Class<TServiceCla
             if(intent == null) {
                 return
             }
-            val globalStateId = intent.getStringExtra(GlobalStateChangeNotification.GLOBAL_STATE_IDENTIFIER)
-            if(reacter.isWatchingGlobalState(globalStateId)) {
-                val payload = intent.getStringExtra(Broadcaster.PUBLISH_ACTION_PAYLOAD_KEY)
-                val notification = CommandMapping.deserialize(payload, GlobalStateChangeNotification::class.java)
-                val id = notification.id!!
-                reacter.updateLocalGlobalState(id, notification.state)
-                satisfyPendingInitialization(id)
-            }
+            broadcastReceivedCallback?.invoke(intent)
         }
     }
 
     private fun requestInitialGlobalStates() {
+        val reacter = this.reacter ?: return
         reacter.globalStateProperties.keys.forEach { stateId ->
             val request = GlobalStateRepublishRequest(id = stateId)
             sendMessage(request.toMessage())
         }
     }
 
-    private fun satisfyPendingInitialization(result:Any?) {
+    override fun satisfyPendingInitialization(result:Any?) {
         Log.d("ActionRouterFragment", "Satisfy pending with ${result}")
         val step = pendingInitializations.find { it.satisfiedBy(result) } ?: return
         pendingInitializations.remove(step)
@@ -124,31 +170,23 @@ class ActionRouterFragment<T, TServiceClass>(val serviceClass: Class<TServiceCla
             playStateTransitionPhase(starting = false)
         }
     }
-    private var globalRequestId = 0L;
-    private var pendingRequests = mutableMapOf<Long, ActionExecutionRequest>()
 
-    private fun processReply(msg:Message) {
-        val response = CommandMapping.fromMessage(msg)
-        if (response is ActionExecutionResponse) {
-            processResponse(response)
-        } else {
-            Log.d("ActionRouterFragment", "Got unknown reply response $response")
-        }
+    override fun requireInitiazation(step: InitializationStep) {
+        pendingInitializations.add(step)
     }
 
-    private fun processResponse(response: ActionExecutionResponse) {
-        val originalRequest = pendingRequests.remove(response.requestId) ?: return
-        reacter.updateActionState(oldActionState = originalRequest.state, newActionState = response.state)
+    var broadcastReceivedCallback: ((Intent) -> Unit)? = null
+    override fun broadcastReceived(callback: (Intent) -> Unit) {
+        broadcastReceivedCallback = callback
     }
 
-    fun fire(actionPath:ActionPath, prepare: (ActionTrigger<T>.() -> Unit)? = null) {
-        val config = ActionTrigger(state = reacter.state)
-        prepare?.invoke(config)
-        var input = config.actionInput
-        var state = config.actionState
-        val requestId = globalRequestId++
-        val request = ActionExecutionRequest(actionPath=actionPath, input = input, state = state, requestId = requestId)
-        sendMessage(request.toMessage())
-        pendingRequests.set(request.requestId, request)
+    var replyReceivedCallback: ((Message) -> Unit)? = null
+    override fun replyReceived(callback: (Message) -> Unit) {
+        replyReceivedCallback = callback
+    }
+
+    companion object {
+        private val STATE_BUNDLE_KEY="routerState"
+        private val STATE_CLASS_NAME_BUNDLE_KEY="routerStateClassName"
     }
 }

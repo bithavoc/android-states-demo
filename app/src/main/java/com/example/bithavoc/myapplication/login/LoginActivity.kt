@@ -17,41 +17,48 @@ import com.example.bithavoc.myapplication.home.HomeActivity
 import kotlinx.android.synthetic.main.activity_login.*;
 
 class LoginActivity : AppCompatActivity() {
-    private val routerFragment = ActionRouterFragment(MyBackendService::class.java) { object {
-        @GlobalState
-        var logon = LogonStateData()
+    private lateinit var routerFragment: ActionRouterFragment
+    private val reacter = StateReacter() {
+        object {
+            @GlobalState
+            var logon = LogonStateData()
 
-        @ActionState
-        var login = LoginResult()
-    } }
+            @ActionState
+            var login = LoginResult()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_login)
         prepareUI()
 
-        routerFragment.prepare {
-            it.initializingState(object:StateTransitionIndicator {
-                override fun start() {
-                    showProgress(true)
-                }
-
-                override fun end() {
-                    showProgress(false)
-                }
-            })
-            it.reacter.reacting { newLoginState, oldLoginState ->
-                email_field.error = newLoginState.login.emailError
-                password_field.error = newLoginState.login.passwordError
-                if(newLoginState.logon.loggedIn) {
-                    this.startActivity(Intent(this, HomeActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK))
-                }
+        reacter.reacting { newLoginState, oldLoginState ->
+            email_field.error = newLoginState.login.emailError
+            password_field.error = newLoginState.login.passwordError
+            if(newLoginState.logon.loggedIn) {
+                this.startActivity(Intent(this, HomeActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK))
             }
         }
 
-        val transaction = this.fragmentManager.beginTransaction()
-        transaction.add(routerFragment, "fragmentRouter")
-        transaction.commit()
+        var fragment = fragmentManager.findFragmentByTag("fragmentRouter") as? ActionRouterFragment
+        if(fragment == null) {
+            fragment = ActionRouterFragment()
+            val transaction = this.fragmentManager.beginTransaction()
+            transaction.add(fragment, "fragmentRouter")
+            transaction.commit()
+        }
+        routerFragment = fragment
+        routerFragment.initializingState(object:StateTransitionIndicator {
+            override fun start() {
+                showProgress(true)
+            }
+
+            override fun end() {
+                showProgress(false)
+            }
+        })
+        routerFragment.prepare(MyBackendService::class.java, reacter)
     }
 
     private fun prepareUI() {
@@ -67,7 +74,7 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun attemptLogin() {
-        routerFragment.fire(ActionPath(handler = "logon", action = "login")) {
+        reacter.fire(ActionPath(handler = "logon", action = "login")) {
             input { LoginCredentials(email = email_field.text.toString(), password = password_field.text.toString()) }
             state { state -> state.login }
         }
