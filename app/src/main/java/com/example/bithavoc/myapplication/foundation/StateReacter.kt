@@ -60,8 +60,10 @@ class StateReacter<T>(val stateInit: () -> T) where T:Any {
             val old = field
             val new = value
             val diff = differ.compare(new, old)
-            field = new
-            triggerChanged(new, old)
+            if(diff.isChanged) {
+                field = new
+                triggerChanged(new, old)
+            }
         }
 
     fun restoreState(restoredState:Any?) {
@@ -115,32 +117,37 @@ class StateReacter<T>(val stateInit: () -> T) where T:Any {
         return globalStateProperties.keys.any { it.toString().equals(id, ignoreCase = true) }
     }
 
+    private fun duplicateState() : T {
+        val stateData = CommandMapping.json.serialize(this.state)
+        return CommandMapping.json.deserialize(stateData, this.state.javaClass)
+    }
+
     private fun updateLocalGlobalState(id:GlobalStateIdentifier, state:Any?) {
         val prop = globalStateProperties[id] ?: return
-        val currentState = this.state
+        val newState = duplicateState()
 
         if(state != null || prop.returnType.isMarkedNullable) {
-            prop.set(receiver = currentState, value = state)
+            prop.set(receiver = newState, value = state)
         }
-        this.state = currentState
+        this.state = newState
     }
 
     private fun updateActionState(oldActionState:Any?, newActionState:Any?) {
         if(oldActionState == null) {
             return
         }
-        val currentState = this.state
+        val newState = this.duplicateState()
 
         for(prop in actionStateProperties) {
-            var existingValue = prop.get(currentState)
+            var existingValue = prop.get(newState)
             if(existingValue == null) {
                 return
             }
             if(existingValue.equals(oldActionState)) {
-                prop.set(receiver = currentState, value = newActionState)
+                prop.set(receiver = newState, value = newActionState)
             }
         }
-        this.state = currentState
+        this.state = newState
     }
 
     fun fire(actionPath:ActionPath, prepare: (ActionTrigger<T>.() -> Unit)? = null) {
