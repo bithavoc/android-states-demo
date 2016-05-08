@@ -33,11 +33,25 @@ class LoginActivity : AppCompatActivity() {
         setContentView(R.layout.activity_login)
         prepareUI()
 
+        reacter.decide("successfulLogin") {
+            on { it.logon.loggedIn }
+            then {
+                this@LoginActivity.startActivity(Intent(this@LoginActivity, HomeActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                finish()
+            }
+        }
         reacter.reacting { newLoginState, oldLoginState ->
             email_field.error = newLoginState.login.emailError
             password_field.error = newLoginState.login.passwordError
-            if(newLoginState.logon.loggedIn) {
+            /*if (newLoginState.logon.loggedIn) {
                 this.startActivity(Intent(this, HomeActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                finish()
+            }*/
+        }
+        reacter.triggering(ActionPath(handler = "logon", action = "login")) {
+            transition(ProgressDialogLoaderIndicator(this@LoginActivity))
+            then {
+
             }
         }
 

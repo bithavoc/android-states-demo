@@ -102,6 +102,7 @@ class StateReacter<T>(val stateInit: () -> T) where T:Any {
     }
     private fun triggerChanged(new:T, old:T) {
         changingLoopHandler?.post { changedDelegate?.invoke(new, old) }
+        decisions.check(new)
     }
     private var changedDelegate : ((new:T, old:T) -> Unit)? = null
     private var changingLoopHandler : Handler? = null
@@ -159,6 +160,19 @@ class StateReacter<T>(val stateInit: () -> T) where T:Any {
         val request = ActionExecutionRequest(actionPath = actionPath, input = input, state = state, requestId = requestId)
         messageBus?.sendMessage(request.toMessage())
         pendingRequests.set(request.requestId, request)
+    }
+
+    private val decisions = ReacterDecisionTree<T>(null, "")
+    init {
+        decisions.on { true }
+    }
+    fun decide(name:String, build: ReacterDecisionTree<T>.() -> Unit) {
+        decisions.so(name, build)
+    }
+
+    fun triggering(action:ActionPath, build:TriggeringConfiguration<T>.() -> Unit) {
+        val tree = TriggeringConfiguration<T>(state)
+        tree.build()
     }
 
     private fun processResponse(response: ActionExecutionResponse) {

@@ -33,10 +33,10 @@ class HomeActivity : Activity() {
         }
 
         reacter.reacting { newState, oldState ->
-            /*if(!newState.logon.loggedIn) {
+            if(!newState.logon.loggedIn) {
                 startActivity(Intent(this, LoginActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK))
                 finish()
-            }*/
+            }
         }
 
         var fragment = fragmentManager.findFragmentByTag("fragmentRouter") as? ActionRouterFragment

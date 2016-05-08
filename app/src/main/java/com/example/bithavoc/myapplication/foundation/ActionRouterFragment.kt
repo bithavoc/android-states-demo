@@ -175,12 +175,12 @@ class ActionRouterFragment : Fragment(), MessageBus, InitializationChain {
         pendingInitializations.add(step)
     }
 
-    var broadcastReceivedCallback: ((Intent) -> Unit)? = null
+    private var broadcastReceivedCallback: ((Intent) -> Unit)? = null
     override fun broadcastReceived(callback: (Intent) -> Unit) {
         broadcastReceivedCallback = callback
     }
 
-    var replyReceivedCallback: ((Message) -> Unit)? = null
+    private var replyReceivedCallback: ((Message) -> Unit)? = null
     override fun replyReceived(callback: (Message) -> Unit) {
         replyReceivedCallback = callback
     }

@@ -26,10 +26,10 @@ internal class ActionDescription(
     }
 
     fun shouldAddInput(input:Any?) : Boolean {
-        return canAcceptInputCheckingNullability(input)
+        return this.inputParam != null && canAcceptInputCheckingNullability(input)
     }
 
     fun shouldAddState(state:Any?) : Boolean {
-        return canAcceptStateCheckingNullability(state)
+        return this.stateParam != null && canAcceptStateCheckingNullability(state)
     }
 }
